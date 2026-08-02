@@ -1,13 +1,10 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'opportunity.dart';
-import 'app_drawer.dart';
+import 'model.dart';
 
 class CurriculumAIScreen extends StatefulWidget {
   const CurriculumAIScreen({super.key});
@@ -22,11 +19,21 @@ class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
   String? _downloadMessage;
   List<Map<String, dynamic>> _supabaseCourses = [];
   bool _isLoadingCourses = true;
+  String _userName = 'Admin';
 
   @override
   void initState() {
     super.initState();
+    _fetchName();
     _fetchCourses();
+  }
+
+  Future<void> _fetchName() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    String name = user.userMetadata?['full_name']?.split(' ')[0] ?? 
+                 user.userMetadata?['first_name'] ?? 'Admin';
+    if (mounted) setState(() => _userName = name);
   }
 
   Future<void> _fetchCourses() async {
@@ -141,15 +148,32 @@ class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = Supabase.instance.client.auth.currentUser;
+    final role = user?.userMetadata?['role'];
+
+    // Integrity check: if not admin, redirect back to home
+    if (role != 'admin') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacementNamed(context, '/home');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Curriculum AI'),
+        title: Text('Hi, $_userName'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              Navigator.pushReplacementNamed(context, '/admin');
+            }
+          },
         ),
       ),
-      drawer: const AppDrawer(currentDestination: AppDrawerDestination.admin),
+      drawer: const AppDrawer(currentDestination: AppDrawerDestination.curriculumAi),
       body: Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(

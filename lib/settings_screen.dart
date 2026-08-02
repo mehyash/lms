@@ -1,33 +1,64 @@
-import 'package:flutter/material.dart';
-import 'app_drawer.dart';
-import 'page_transitions.dart';
+import 'model.dart';
 import 'account_settings_screen.dart';
 import 'email_preferences_screen.dart';
 import 'appearance_screen.dart';
 import 'experiential_record_screen.dart';
 
-/// ---------------------------------------------------------------------
-/// SETTINGS SCREEN
-/// ---------------------------------------------------------------------
-/// Reached from the drawer's "Settings" destination. Hosts the
-/// account/app-level settings that don't belong on the Profile page:
-///   - Account Settings        (change password, delete account —
-///                               moved here from Profile)
-///   - Email Preferences       (which emails the user receives)
-///   - Appearance              (Light Mode / Dark Mode)
-///   - My Experiential Record  (which fields appear on the public
-///                               experiential record + its visibility)
-///
-/// Frontend only — each sub-screen uses static/dummy data except
-/// Appearance, which is fully functional (see ThemeController).
-/// ---------------------------------------------------------------------
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _userName = 'User';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchName();
+  }
+
+  Future<void> _fetchName() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    String name = user.userMetadata?['full_name']?.split(' ')[0] ?? 
+                 user.userMetadata?['first_name'] ?? 'User';
+    try {
+      final res = await Supabase.instance.client
+          .from('students')
+          .select('first_name')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (res != null && res['first_name'] != null) name = res['first_name'];
+    } catch (_) {}
+    if (mounted) setState(() => _userName = name);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final user = Supabase.instance.client.auth.currentUser;
+    final role = user?.userMetadata?['role'] ?? 'student';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings'), centerTitle: false),
+      appBar: AppBar(
+        title: Text('Hi, $_userName'),
+        centerTitle: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              Navigator.pushReplacementNamed(
+                context,
+                role == 'admin' ? '/admin' : '/home',
+              );
+            }
+          },
+        ),
+      ),
       drawer: const AppDrawer(currentDestination: AppDrawerDestination.settings),
       body: SafeArea(
         child: ListView(
@@ -93,7 +124,7 @@ class SettingsScreen extends StatelessWidget {
                   leading: Icon(item.icon, color: Theme.of(context).colorScheme.primary),
                   title: Text(item.label, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
                   subtitle: Text(item.subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                  trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
                 ),
                 if (i != items.length - 1)
                   Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey.shade200),

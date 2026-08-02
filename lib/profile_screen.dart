@@ -1,31 +1,39 @@
-import 'package:flutter/material.dart';
-import 'app_drawer.dart';
-import 'page_transitions.dart';
+import 'model.dart';
 import 'personal_information_screen.dart';
 import 'educational_information_screen.dart';
 
-/// ---------------------------------------------------------------------
-/// PROFILE SCREEN
-/// ---------------------------------------------------------------------
-/// The Profile hub, reached from the drawer's "Profile" destination and
-/// the Home "Quick Links -> Profile" shortcut. Shows the signed-in
-/// user's identity card plus a menu of editable sections that each open
-/// their own screen.
-///
-/// Per this sprint's scope, only two sections are included on Profile —
-/// Personal Information and Educational Information. Account Settings
-/// now lives on the Settings page (see settings_screen.dart) instead.
-/// Opportunity Provider, My Interests, My Experiential Record, and
-/// Email Preferences are intentionally left off Profile too — My
-/// Experiential Record and Email Preferences now live on Settings.
-///
-/// Frontend only — identity + section data is static/dummy for now.
-/// ---------------------------------------------------------------------
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  // Dummy signed-in user — will be replaced by real auth/profile data
-  // once the backend is wired up.
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  String _userName = 'User';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchName();
+  }
+
+  Future<void> _fetchName() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    String name = user.userMetadata?['full_name']?.split(' ')[0] ?? 
+                 user.userMetadata?['first_name'] ?? 'User';
+    try {
+      final res = await Supabase.instance.client
+          .from('students')
+          .select('first_name')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (res != null && res['first_name'] != null) name = res['first_name'];
+    } catch (_) {}
+    if (mounted) setState(() => _userName = name);
+  }
+
   static const _name = 'Haasini Kunamneni';
   static const _role = 'Student';
   static const _email = 'haasini.kunamneni@example.com';
@@ -34,8 +42,27 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = Supabase.instance.client.auth.currentUser;
+    final role = user?.userMetadata?['role'] ?? 'student';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile'), centerTitle: false),
+      appBar: AppBar(
+        title: Text('Hi, $_userName'),
+        centerTitle: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              Navigator.pushReplacementNamed(
+                context,
+                role == 'admin' ? '/admin' : '/home',
+              );
+            }
+          },
+        ),
+      ),
       drawer: const AppDrawer(currentDestination: AppDrawerDestination.profile),
       body: SafeArea(
         child: ListView(
@@ -84,13 +111,13 @@ class ProfileScreen extends StatelessWidget {
                 child: const Icon(Icons.person_rounded, color: Colors.white, size: 32),
               ),
               const SizedBox(width: 16),
-              Expanded(
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(_name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text('Role: $_role', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                    Text(_name, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                    SizedBox(height: 2),
+                    Text('Role: $_role', style: TextStyle(fontSize: 13, color: Colors.grey)),
                   ],
                 ),
               ),
@@ -159,7 +186,7 @@ class ProfileScreen extends StatelessWidget {
                   onTap: item.onTap,
                   leading: Icon(item.icon, color: Theme.of(context).colorScheme.primary),
                   title: Text(item.label, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-                  trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
                 ),
                 if (i != items.length - 1)
                   Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey.shade200),
@@ -176,8 +203,7 @@ class ProfileScreen extends StatelessWidget {
       width: double.infinity,
       child: FilledButton.icon(
         onPressed: () {
-          // Clears the nav stack back to Login so the back button can't
-          // return into the app after signing out.
+          Supabase.instance.client.auth.signOut();
           Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
         },
         icon: const Icon(Icons.logout_rounded),
