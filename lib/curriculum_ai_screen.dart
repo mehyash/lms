@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'dart:typed_data';
 import 'model.dart';
 
 class CurriculumAIScreen extends StatefulWidget {
@@ -14,7 +12,8 @@ class CurriculumAIScreen extends StatefulWidget {
 }
 
 class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
-  String? _selectedProgram;
+  String? _selectedCourseId;
+  String? _selectedCourseName;
   bool _isGenerating = false;
   String? _downloadMessage;
   List<Map<String, dynamic>> _supabaseCourses = [];
@@ -50,10 +49,10 @@ class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
   }
 
   // Replace with your actual n8n webhook URL
-  final String _n8nWebhookUrl = 'https://gunaranjan.app.n8n.cloud/webhook/curriculum-gen';
+  final String _n8nWebhookUrl = 'https://pgunaranjan.app.n8n.cloud/webhook/generate-course';
 
   Future<void> _generateCurriculum() async {
-    if (_selectedProgram == null) {
+    if (_selectedCourseId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a program first')),
       );
@@ -66,30 +65,90 @@ class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
     });
 
     try {
+      debugPrint('AI Request URL: $_n8nWebhookUrl');
+      final requestBody = json.encode({
+        'programName': _selectedCourseName,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      debugPrint('AI Request Body: $requestBody');
+
       // 1. Send request to n8n
       final response = await http.post(
         Uri.parse(_n8nWebhookUrl),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'programName': _selectedProgram,
-          'timestamp': DateTime.now().toIso8601String(),
-        }),
+        body: requestBody,
       );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final String? pdfUrl = data['pdfUrl']; // Expecting n8n to return a 'pdfUrl' key
+      debugPrint('AI Response Status: ${response.statusCode}');
 
-        if (pdfUrl != null && pdfUrl.isNotEmpty) {
-          setState(() => _downloadMessage = 'Curriculum generated! Downloading PDF...');
-          await _downloadFile(pdfUrl);
+      if (response.statusCode == 200) {
+        final contentType = response.headers['content-type'];
+        
+        if (contentType != null && contentType.contains('application/pdf')) {
+          // Webhook returned the PDF binary directly
+          debugPrint('AI Response: PDF Binary detected');
+          
+          if (mounted) {
+            final result = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PdfPreviewScreen(
+                  pdfBytes: response.bodyBytes,
+                  courseName: _selectedCourseName!,
+                  courseId: _selectedCourseId!,
+                ),
+              ),
+            );
+
+            if (result == true) {
+              setState(() => _downloadMessage = 'Curriculum published successfully!');
+            } else {
+              setState(() => _downloadMessage = 'Generation cancelled.');
+            }
+          }
         } else {
-          throw 'No PDF link received from AI service.';
+          // Webhook returned JSON with a URL
+          debugPrint('AI Response Body: ${response.body}');
+          final data = json.decode(response.body);
+          final String? pdfUrl = data['pdfUrl'];
+
+          if (pdfUrl != null && pdfUrl.isNotEmpty) {
+            setState(() => _downloadMessage = 'Curriculum generated! Downloading for preview...');
+            
+            // Download the file to bytes using Dio
+            final dio = Dio();
+            final downloadRes = await dio.get<List<int>>(
+              pdfUrl,
+              options: Options(responseType: ResponseType.bytes),
+            );
+            
+            if (mounted && downloadRes.data != null) {
+               final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PdfPreviewScreen(
+                    pdfBytes: Uint8List.fromList(downloadRes.data!),
+                    courseName: _selectedCourseName!,
+                    courseId: _selectedCourseId!,
+                  ),
+                ),
+              );
+               if (result == true) {
+                setState(() => _downloadMessage = 'Curriculum published successfully!');
+              } else {
+                setState(() => _downloadMessage = 'Generation cancelled.');
+              }
+            }
+          } else {
+            throw 'No PDF link or file received from AI service.';
+          }
         }
       } else {
-        throw 'Failed to connect to AI service (Status: ${response.statusCode})';
+        debugPrint('AI Error Response Body: ${response.body}');
+        throw 'Failed to connect to AI service (Status: ${response.statusCode}).';
       }
     } catch (e) {
+      debugPrint('AI General Exception: $e');
       setState(() => _downloadMessage = 'Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -98,51 +157,6 @@ class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
       }
     } finally {
       setState(() => _isGenerating = false);
-    }
-  }
-
-  Future<void> _downloadFile(String url) async {
-    try {
-      final dio = Dio();
-      final dir = await getApplicationDocumentsDirectory();
-      final fileName = 'Curriculum_${_selectedProgram?.replaceAll(' ', '_')}.pdf';
-      final filePath = '${dir.path}/$fileName';
-
-      await dio.download(
-        url,
-        filePath,
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
-            setState(() {
-              _downloadMessage = 'Downloading: ${(received / total * 100).toStringAsFixed(0)}%';
-            });
-          }
-        },
-      );
-
-      setState(() => _downloadMessage = 'Saved to: $fileName');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('PDF downloaded successfully!'),
-            action: SnackBarAction(
-              label: 'Open',
-              onPressed: () async {
-                final Uri uri = Uri.file(filePath);
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(uri);
-                } else {
-                  // Fallback for some platforms: try launching the original URL
-                  await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-                }
-              },
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      throw 'Download failed: $e';
     }
   }
 
@@ -217,12 +231,18 @@ class _CurriculumAIScreenState extends State<CurriculumAIScreen> {
                       filled: true,
                       fillColor: Colors.white,
                     ),
-                    value: _selectedProgram,
+                    value: _selectedCourseId,
                     items: _supabaseCourses.map((c) => DropdownMenuItem(
-                      value: c['courseName'] as String,
+                      value: c['id'].toString(),
                       child: Text(c['courseName'] as String, overflow: TextOverflow.ellipsis),
                     )).toList(),
-                    onChanged: (val) => setState(() => _selectedProgram = val),
+                    onChanged: (val) {
+                      final course = _supabaseCourses.firstWhere((c) => c['id'].toString() == val);
+                      setState(() {
+                        _selectedCourseId = val;
+                        _selectedCourseName = course['courseName'];
+                      });
+                    },
                   ),
             const SizedBox(height: 32),
 

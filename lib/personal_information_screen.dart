@@ -1,16 +1,7 @@
 import 'package:flutter/material.dart';
+import 'model.dart';
 import 'profile_form_widgets.dart';
 
-/// ---------------------------------------------------------------------
-/// PERSONAL INFORMATION SCREEN
-/// ---------------------------------------------------------------------
-/// Reached from the Profile hub's "Personal Information" menu item.
-/// Lets the user review/update their avatar, name, date of birth,
-/// gender, contact info, and permanent address.
-///
-/// Frontend only — Save Changes just confirms via a SnackBar and pops
-/// back to Profile; there is no backend to persist to yet.
-/// ---------------------------------------------------------------------
 class PersonalInformationScreen extends StatefulWidget {
   const PersonalInformationScreen({super.key});
 
@@ -19,7 +10,7 @@ class PersonalInformationScreen extends StatefulWidget {
 }
 
 class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
-  final _nameController = TextEditingController(text: 'Haasini Kunamneni');
+  final _nameController = TextEditingController();
   final _dobController = TextEditingController();
   final _phoneController = TextEditingController();
   final _altEmailController = TextEditingController();
@@ -32,6 +23,94 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
 
   String? _gender;
   bool _nameLocked = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchProfile();
+  }
+
+  Future<void> _fetchProfile() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final res = await Supabase.instance.client
+          .from('students')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        setState(() {
+          final fName = res['firstName'] ?? res['first_name'] ?? '';
+          final lName = res['lastName'] ?? res['last_name'] ?? '';
+          _nameController.text = '$fName $lName'.trim();
+          
+          _dobController.text = res['dob'] ?? '';
+          _phoneController.text = res['phone'] ?? '';
+          _altEmailController.text = res['alt_email'] ?? '';
+          _address1Controller.text = res['address1'] ?? '';
+          _address2Controller.text = res['address2'] ?? '';
+          _cityController.text = res['city'] ?? '';
+          _stateController.text = res['state'] ?? '';
+          _countryController.text = res['country'] ?? '';
+          _zipController.text = res['zip'] ?? '';
+          _gender = res['gender'];
+          _isLoading = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('Error fetching profile: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final nameParts = _nameController.text.trim().split(' ');
+      final fName = nameParts.first;
+      final lName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+
+      await Supabase.instance.client.from('students').upsert({
+        'id': user.id,
+        'firstName': fName,
+        'lastName': lName,
+        'dob': _dobController.text,
+        'phone': _phoneController.text,
+        'alt_email': _altEmailController.text,
+        'address1': _address1Controller.text,
+        'address2': _address2Controller.text,
+        'city': _cityController.text,
+        'state': _stateController.text,
+        'country': _countryController.text,
+        'zip': _zipController.text,
+        'gender': _gender,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Personal information saved successfully!'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('Error saving profile: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save: $e'), backgroundColor: Colors.red),
+        );
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -68,7 +147,9 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Personal Information')),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: _isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Container(
             width: double.infinity,
@@ -77,7 +158,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4)),
               ],
             ),
             child: Column(
@@ -185,12 +266,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                 const SizedBox(height: 8),
                 FormActionButtons(
                   onCancel: () => Navigator.pop(context),
-                  onSave: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Personal information saved')),
-                    );
-                    Navigator.pop(context);
-                  },
+                  onSave: _saveProfile,
                 ),
               ],
             ),
@@ -209,7 +285,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           width: 96,
           height: 96,
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [primary, primary.withOpacity(0.6)]),
+            gradient: LinearGradient(colors: [primary, primary.withValues(alpha: 0.6)]),
             borderRadius: BorderRadius.circular(16),
           ),
           child: const Icon(Icons.person_rounded, color: Colors.white, size: 44),
@@ -221,8 +297,6 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   }
 
   void _showAvatarComingSoon(BuildContext context) {
-    // TODO (Future Team): wire up a real image picker + upload once
-    // backend/file storage support exists.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Avatar upload coming soon')),
     );
@@ -238,7 +312,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           shape: BoxShape.circle,
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4)],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4)],
         ),
         child: Icon(icon, size: 14, color: Colors.grey.shade700),
       ),

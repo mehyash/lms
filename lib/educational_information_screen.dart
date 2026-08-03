@@ -1,16 +1,7 @@
 import 'package:flutter/material.dart';
+import 'model.dart';
 import 'profile_form_widgets.dart';
 
-/// ---------------------------------------------------------------------
-/// EDUCATIONAL INFORMATION SCREEN
-/// ---------------------------------------------------------------------
-/// Reached from the Profile hub's "Educational Information" menu item.
-/// Lets the user set their current status, institution, graduation
-/// year, and major.
-///
-/// Frontend only — Save Changes just confirms via a SnackBar and pops
-/// back to Profile; there is no backend to persist to yet.
-/// ---------------------------------------------------------------------
 class EducationalInformationScreen extends StatefulWidget {
   const EducationalInformationScreen({super.key});
 
@@ -24,6 +15,7 @@ class _EducationalInformationScreenState extends State<EducationalInformationScr
 
   String? _currentStatus;
   String? _major;
+  bool _isLoading = true;
 
   static const _statusOptions = [
     'High School Student',
@@ -42,6 +34,71 @@ class _EducationalInformationScreenState extends State<EducationalInformationScr
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _fetchEducation();
+  }
+
+  Future<void> _fetchEducation() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final res = await Supabase.instance.client
+          .from('students')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        setState(() {
+          _currentStatus = res['current_status'];
+          _institutionController.text = res['institution'] ?? '';
+          _gradYearController.text = res['graduation_year']?.toString() ?? '';
+          _major = res['major'];
+          _isLoading = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('Error fetching education: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveEducation() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      await Supabase.instance.client.from('students').upsert({
+        'id': user.id,
+        'current_status': _currentStatus,
+        'institution': _institutionController.text.trim(),
+        'graduation_year': int.tryParse(_gradYearController.text.trim()),
+        'major': _major,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Educational information saved successfully!'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('Error saving education: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save: $e'), backgroundColor: Colors.red),
+        );
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _institutionController.dispose();
     _gradYearController.dispose();
@@ -53,7 +110,9 @@ class _EducationalInformationScreenState extends State<EducationalInformationScr
     return Scaffold(
       appBar: AppBar(title: const Text('Educational Information')),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: _isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Container(
             width: double.infinity,
@@ -62,7 +121,7 @@ class _EducationalInformationScreenState extends State<EducationalInformationScr
               color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4)),
               ],
             ),
             child: Column(
@@ -119,12 +178,7 @@ class _EducationalInformationScreenState extends State<EducationalInformationScr
                 ),
                 FormActionButtons(
                   onCancel: () => Navigator.pop(context),
-                  onSave: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Educational information saved')),
-                    );
-                    Navigator.pop(context);
-                  },
+                  onSave: _saveEducation,
                 ),
               ],
             ),

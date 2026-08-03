@@ -44,6 +44,7 @@ dependencies:
   dio: ^5.3.3
   url_launcher: ^6.2.1
   file_picker: ^8.1.7
+  syncfusion_flutter_pdfviewer: ^28.1.33
 
 dev_dependencies:
   flutter_test:
